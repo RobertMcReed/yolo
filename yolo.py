@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+from multiprocessing import Process, Queue
 
 # constants
 weights = 'yolov3.weights'
@@ -11,9 +12,19 @@ nms_thresh = 0.4
 
 
 class Detector:
-    def __init__(self):
+    def __init__(self, threaded=False):
         self.set_classes_and_colors()
         self.read_net()
+        self.threaded = threaded
+
+        if threaded:
+            self.inputQueue = Queue(maxsize=1)
+            self.outputQueue = Queue(maxsize=1)
+
+            p = Process(target=self.detect_with_thread)
+            p.daemon = True
+            p.start()
+            self.last_detections = None
 
     def set_classes_and_colors(self):
         # read the class names from yolov3.txt
@@ -71,7 +82,7 @@ class Detector:
         cv2.putText(img, label, (X, Y), cv2.FONT_HERSHEY_SIMPLEX,
                     0.5, color, 2)
 
-    def detect_objects(self, image):
+    def detect_objects(self, image, draw=False):
         height, width = image.shape[:2]
 
         # gather the predictions from the output layers
@@ -104,6 +115,35 @@ class Detector:
         # apply non-maxima suppression
         indices = cv2.dnn.NMSBoxes(boxes, confs, conf_thresh, nms_thresh)
 
+        detections = {'class_ids': class_ids,
+                      'confs': confs,
+                      'boxes': boxes,
+                      'indices': indices}
+
+        if draw:
+            self.draw_detections(image=image, **detections)
+
+        return detections
+
+    def handle_image(self, image):
+        if self.threaded:
+            detections = None
+
+            if self.inputQueue.empty():
+                self.inputQueue.put(image)
+
+            if not self.outputQueue.empty():
+                detections = self.outputQueue.get()
+
+            if detections is not None:
+                self.draw_detections(image=image, **detections)
+                self.last_detections = detections
+            elif self.last_detections is not None:
+                self.draw_detections(image, **self.last_detections)
+        else:
+            self.detect_objects(image, draw=True)
+
+    def draw_detections(self, image, indices, boxes, confs, class_ids):
         # iterate through the remaining detections and draw the bounding box
         for i in indices:
             i = i[0]
@@ -114,13 +154,12 @@ class Detector:
                                    (round(x), round(y)),
                                    (round(x + w), round(y + h)))
 
-        return image
+    def detect_with_thread(self):
+        while True:
+            # check to see if there is a frame in the input queue
+            if not self.inputQueue.empty():
+                # grab the frame, run the detection, and add it to the queue
+                image = self.inputQueue.get()
 
-# def classify_frame(net, inputQueue, outputQueue):
-#     while True:
-#         # check to see if there is a frame in the input queue
-#         if not inputQueue.empty():
-#             # grab the frame, resize it, and construct a blob from it
-#             frame = inputQueue.get()
-#             frame = cv2.resize(frame, (300, 300))
-#             blob = cv2.dnn.blobFromImage(frame, )
+                detections = self.detect_objects(image)
+                self.outputQueue.put(detections)

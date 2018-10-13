@@ -12,7 +12,7 @@ image = cv2.imread(args.image)
 
 detector = Detector()
 
-image = detector.detect_objects(image)
+detector.detect_objects(image, draw=True)
 
 cv2.imshow('Detections', image)
 cv2.waitKey(0)

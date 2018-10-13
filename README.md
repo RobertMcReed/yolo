@@ -35,6 +35,8 @@ pip install "picamera[array]"
 
 ## Usage
 
+For both image and video, to exit the script press "q" while the image viewer is active.
+
 ### Image
 
 Run object detection on an image:
